@@ -1,0 +1,20 @@
+# Created by venv; see https://docs.python.org/3/library/venv.html
+# Virtual environment
+.venv/
+venv/
+
+# API keys and secrets
+.streamlit/secrets.toml
+.env
+.env.*
+
+# Python cache
+__pycache__/
+*.pyc
+
+# PyCharm settings
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
