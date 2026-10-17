@@ -5,6 +5,16 @@ from google import genai
 from google.genai import types
 from PIL import Image, ImageOps
 
+from pyvis.network import Network
+import streamlit.components.v1 as components
+
+st.set_page_config(
+    page_title="Square Root",
+    page_icon="🌱",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
+
 ## Gemini client
 client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
@@ -33,7 +43,7 @@ def get_colors(skills, subject, concept):
 
     ## check if the concept exists in skills, if not return a gray color
     if concept not in skills[subject]:
-        color = "#9CA3AF"
+        color = "#B8A9CA"
         return color
 
     ## Calculate the total number of correct and incorrect attempts
@@ -43,18 +53,18 @@ def get_colors(skills, subject, concept):
 
     ## If the total number of correct/incorrect attemptss is less than 3, return yellow color
     if total < 3:
-        color = "#FACC15"
+        color = "#E6BC68"
         return color
 
     ## Calculate score when there are enough attempts
     score = correct / total
 
     if score < 0.8 and score >= 0.5:
-        color = "#FB923C"
+        color = "#D99563"
     elif score < 0.5:
-        color = "#EF4444"
+        color = "#D46A81"
     else:
-        color = "#22C55E"
+        color = "#65A994"
     return color
 
 ## Subject color method
@@ -71,18 +81,18 @@ def get_subject_color(skills, subject):
 
 
     if total == 0:
-        color = ""
+        color = "#9CA3AF"
         return color
     total_score = correct / total
     if total < 3:
-        color = ""
+        color = "#FACC15"
         return color
-    if total_score > 0.5 and total_score < 0.8:
-        color = ""
+    if total_score >= 0.5 and total_score < 0.8:
+        color = "#FB923C"
     elif total_score <= 0.5:
-        color = ""
+        color = "#EF4444"
     else:
-        color = ""
+        color = "#22C55E"
 
     return color
 
@@ -90,6 +100,7 @@ def get_subject_color(skills, subject):
 ## Return gemma response
 def analyze_image(image):
 
+    ## Prompt sent to gemma to analyze the image
     prompt = ("""You are a math analyzer. Rather than simply giving the correct answer,"
               you are going to diagnose the user's problem area.
               You will receive an image containing a handwritten mathematics problem
@@ -145,6 +156,9 @@ def analyze_image(image):
 
               12. If the image is unreadable or does not contain enough mathematical
               work to assess, return an empty skills list and explain why.
+              13. Do not use LaTeX notation or backslashes anywhere in your JSON response.
+              Write all mathematical expressions in plain text.
+              For example, write "sin(x)", "pi/3", and "1/2".
 
                 OUTPUT FORMAT:
                      Return ONLY valid JSON. Do not include Markdown formatting, code fences, or any text outside the JSON.
@@ -175,6 +189,7 @@ def analyze_image(image):
             answer is correct.
             """)
 
+    ## response sent from gemma
     response = client.models.generate_content(
         model = "gemma-4-26b-a4b-it",
         contents = [prompt, image]
@@ -190,44 +205,252 @@ def generate_problem(concept):
 
 ## Node tree
 def display_tree(skills):
+    net = Network(
+        height="600px",
+        width="100%",
+        bgcolor="rgba(0,0,0,0)",
+        font_color="#30263D",
+        directed=False
+    )
 
-    graph = "digraph { \n"
+    ## Styling
+    net.set_options("""
+    {
+      "nodes": {
+        "font": {
+          "size": 18,
+          "face": "Arial",
+          "color": "#30263S"
+        },
+        "borderWidth": 2
+      },
+      "edges": {
+        "color": "#C9BDD8",
+        "width": 2,
+        "smooth": {
+          "enabled": true,
+          "type": "continuous"
+        }
+      },
+      "physics": {
+        "enabled": true,
+        "barnesHut": {
+          "gravitationalConstant": -8000,
+          "centralGravity": 0.15,
+          "springLength": 180,
+          "springConstant": 0.04,
+          "damping": 0.2
+        },
+        "stabilization": {
+          "enabled": true,
+          "iterations": 200
+        }
+      },
+      "interaction": {
+        "hover": true,
+        "dragNodes": true,
+        "zoomView": true,
+        "dragView": true
+      }
+    }
+    """)
+
+    ## Loop over subject and concepts to display on graph
     for subject, concepts in skills.items():
         subject_color = get_subject_color(skills, subject)
-        graph += f'"{subject}"\n'
-        graph += f'"{subject}" [style=filled, fillcolor = "{subject_color}"]\n'
+
+        net.add_node(
+            subject,
+            label=subject,
+            color={
+                "background": subject_color if skills[subject] else "rgba(0,0,0,0)",
+                "border": subject_color if skills[subject] else "#7353AC"
+            },
+            borderWidth=3,
+            size=35,
+            shape="dot"
+        )
+
         for concept in concepts:
             color = get_colors(skills, subject, concept)
-            graph += f'"{subject}" -> "{concept}"\n'
-            graph += f'"{concept}" [style=filled, fillcolor="{color}"]\n'
-    graph += "}"
-    st.graphviz_chart(graph)
+            node_id = f"{subject}:{concept}"
 
-# Streamlit GUI Interface
+            net.add_node(
+                node_id,
+                label=concept,
+                color=color,
+                size=20,
+                shape="dot"
+            )
+
+            net.add_edge(subject, node_id)
+
+    html = net.generate_html()
+
+    # Make graph bg transparent
+    html = html.replace(
+        "</head>",
+        """
+        <style>
+            html, body {
+                background: transparent !important;
+                margin: 0;
+                padding: 0;
+            }
+
+            #mynetwork {
+                background: transparent !important;
+                border: none !important;
+            }
+
+            .card {
+                background: transparent !important;
+                border: none !important;
+            }
+        </style>
+        </head>
+        """
+    )
+
+    components.html(html, height=620, scrolling=False)
+
+
+# Streamlit Interface
+
+## Styling components (a little messy)
+st.markdown("""
+<style>
+    /* Center the title */
+    div[data-testid="stHeadingWithActionElements"] {
+        justify-content: center;
+    }
+
+    h1 {
+        text-align: center;
+        color: #7353AC
+        font-size: 3.5rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 st.title(r"$\sqrt{\text{Square Root}}$")
-st.subheader("Find the root of your math problems")
+st.markdown(
+    """
+    <p style="
+        text-align: center;
+        color: #776B88;
+        font-size: 20px;
+        margin-top: -10px;
+        margin-bottom: 35px;
+    ">
+        Find the root of your math problems
+    </p>
+    """,
+    unsafe_allow_html=True
+)
+
+
+st.markdown("""
+<style>
+    h1, h2, h3 {
+        color: #7353AC !important;
+    }
+
+    p {
+        color: #30263D;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Upload file button
 
 uploaded_file = st.file_uploader(
-    "Upload your handwritten math work",
+    "",
     type = ["png", "jpg", "jpeg"]
 )
 
+st.markdown("""
+<style>
+[data-testid="stFileUploaderDropzone"] {
+    background: transparent 
+    border: none 
+    padding: 0 
+    display: flex 
+    justify-content: center 
+}
 
+[data-testid="stFileUploaderDropzone"] button {
+    background: #7343AC;
+    color: white;
+    border: none ;
+    border-radius: 12px ;
+    padding: 0.65rem 1.5rem ;
+    font-weight: 600;
+    transition: background-color 0.2s ease;
+}
+
+[data-testid="stFileUploaderDropzone"] button:hover {
+    background: #B9A0E5;
+    color: white ;
+}
+
+div.stButton {
+    max-width: 250px;
+    margin-left: auto;
+    margin-right: auto;
+}
+[data-testid="stFileUploaderDropzone"] {
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+[data-testid="stFileUploader"] {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+</style>
+""", unsafe_allow_html=True)
 if uploaded_file is not None:
     image = Image.open(uploaded_file)
-    st.image(uploaded_file.getvalue(), width=400)
+    left, center, right = st.columns([1, 3, 1])
 
-    if st.button(label="Analyze"):
-        with st.spinner("We're analyzing your math skills... Give us a second!"):
+    with center:
+        st.image(uploaded_file.getvalue(), use_container_width=True)
+
+    if st.button("Analyze", use_container_width=True):
+        message = st.empty()
+
+        message.markdown(
+            "<p style='text-align:center;'>We're analyzing your math skills... Give us a second!</p>",
+            unsafe_allow_html=True
+        )
+
+        with st.spinner(""):
             response = analyze_image(image)
+
+        message.empty()
         result = json.loads(response)
 
-        st.subheader("Our Analysis")
+        st.markdown(
+            "<h3 style='text-align: center; color: #7353AC;'>Our Analysis</h3>",
+            unsafe_allow_html=True
+        )
         st.write(result["summary"])
 
-    st.subheader("Your Math Tree")
-    display_tree(result["skills"])
+        for skill in result["skills"]:
+            if skill["result"] in ("correct", "incorrect"):
+                update_skill(
+                    skill["subject"],
+                    skill["concept"],
+                    skill["result"] == "correct"
+                )
+
+st.markdown(
+    "<h3 style='text-align: center; color: #7353AC;'>Your Math Tree</h3>",
+    unsafe_allow_html=True
+)
+display_tree(skills)
 
